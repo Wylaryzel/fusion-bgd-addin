@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Boardgame Insert – M2</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+  <style>
+    body{font-family:system-ui,Arial,sans-serif;margin:12px}
+    nav{display:flex;gap:8px;margin-bottom:12px}
+    .tab{padding:6px 10px;border:1px solid #ccc;border-radius:6px;cursor:pointer}
+    .tab.active{background:#eee}
+    section{display:none}
+    section.active{display:block}
+    label{display:block;margin:6px 0 2px}
+    input{width:100%;padding:6px 8px;box-sizing:border-box}
+    .row{display:flex;gap:8px}
+    .row > div{flex:1}
+    .muted{color:#666}
+    button{padding:6px 10px;margin-top:8px}
+    .ok{color:green}
+  </style>
+</head>
+<body>
+  <h2>Boardgame Insert – M2</h2>
+  <nav>
+    <div class="tab active" data-tab="tab-box">Box & Regeln</div>
+    <div class="tab" data-tab="tab-debug">Debug</div>
+  </nav>
+
+  <section id="tab-box" class="active">
+    <div class="row">
+      <div>
+        <label>Box Innenmaß L (mm)</label>
+        <input id="boxL" type="number" step="0.1" value="285">
+      </div>
+      <div>
+        <label>Box Innenmaß B (mm)</label>
+        <input id="boxW" type="number" step="0.1" value="285">
+      </div>
+      <div>
+        <label>Box Innenmaß H (mm)</label>
+        <input id="boxH" type="number" step="0.1" value="70">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Gap-Tolerance (mm)</label>
+        <input id="gap" type="number" step="0.1" value="0.5">
+      </div>
+    </div>
+    <button id="btnSave">Speichern</button>
+    <span id="saveState" class="muted"></span>
+  </section>
+
+  <section id="tab-debug">
+    <button id="btnPing">Ping Fusion (HTML→Python)</button>
+    <div id="debugOut" class="muted" style="margin-top:8px"></div>
+  </section>
+
+  <script>
+    // Tabs
+    document.querySelectorAll('.tab').forEach(t=>{
+      t.addEventListener('click', ()=>{
+        document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+        document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));
+        t.classList.add('active');
+        document.getElementById(t.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Bridge: Python -> HTML
+    // Fusion ruft window.fusionJavaScriptCallback('bgd-message', jsonString) auf
+    window.fusionJavaScriptCallback = function(action, data) {
+      if (action !== 'bgd-message') return;
+      try {
+        const msg = JSON.parse(data || '{}');
+        if (msg.type === 'pong') {
+          appendDebug('PONG empfangen ✅');
+        } else if (msg.type === 'settings') {
+          loadSettings(msg.payload || {});
+          appendDebug('Settings geladen');
+        } else if (msg.type === 'saved') {
+          setSaveState('Gespeichert', true);
+        }
+      } catch(e) {
+        appendDebug('Parse-Fehler: ' + e);
+      }
+    };
+
+    // HTML -> Python
+    function sendToFusion(obj) {
+      if (window.adsk && window.adsk.fusionJavaScriptHandler) {
+        window.adsk.fusionJavaScriptHandler.sendData(JSON.stringify(obj));
+      } else {
+        appendDebug('Fusion Bridge nicht verfügbar');
+      }
+    }
+
+    // UI Events
+    document.getElementById('btnPing').addEventListener('click', ()=>{
+      sendToFusion({type:'ping'});
+      appendDebug('PING gesendet …');
+    });
+
+    document.getElementById('btnSave').addEventListener('click', ()=>{
+      const payload = collectSettings();
+      sendToFusion({type:'save_settings', payload});
+      setSaveState('Speichere …', false);
+    });
+
+    // Helpers
+    function collectSettings(){
+      return {
+        box_inner_mm: {
+          x: num('boxL'),
+          y: num('boxW'),
+          z: num('boxH')
+        },
+        gap_tolerance_mm: num('gap')
+      };
+    }
+    function loadSettings(s){
+      if (!s || !s.box_inner_mm) return;
+      set('boxL', s.box_inner_mm.x);
+      set('boxW', s.box_inner_mm.y);
+      set('boxH', s.box_inner_mm.z);
+      if (typeof s.gap_tolerance_mm === 'number') set('gap', s.gap_tolerance_mm);
+    }
+    function num(id){ return parseFloat(document.getElementById(id).value); }
+    function set(id,val){ if (val!=null) document.getElementById(id).value = val; }
+    function appendDebug(txt){
+      const el = document.getElementById('debugOut');
+      el.textContent = (el.textContent ? el.textContent + '\n' : '') + txt;
+    }
+    function setSaveState(txt, ok){
+      const el = document.getElementById('saveState');
+      el.textContent = txt;
+      el.className = ok ? 'ok' : 'muted';
+    }
+
+    // Beim Laden einmal Settings aus Python anfordern
+    sendToFusion({type:'load_settings'});
+  </script>
+</body>
+</html>
